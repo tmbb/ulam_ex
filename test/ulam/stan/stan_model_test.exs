@@ -3,28 +3,15 @@ defmodule Ulam.Stan.StanModelTest do
 
   alias Ulam.Stan.StanModel
   alias Explorer.DataFrame
-
-  defp remove_all_compiled_artifacts() do
-    directories = [
-      "test/stan/models/bernoulli"
-    ]
-
-    for directory <- directories do
-      for relative_path <- File.ls!(directory) do
-        # Remove all compiled artifacts
-        unless Path.extname(relative_path) == ".stan" do
-          full_path = Path.join(directory, relative_path)
-          File.rm!(full_path)
-        end
-      end
-    end
-  end
+  alias Ulam.TestSupport
 
   setup do
-    remove_all_compiled_artifacts()
-    on_exit(&remove_all_compiled_artifacts/0)
+    TestSupport.remove_stan_compiled_artifacts([
+      "test/ulam/stan/models/bernoulli"
+    ])
   end
 
+  @tag slow: true
   test "compile and run bernoulli model" do
     # Some simple data for the model
     data = %{
@@ -33,7 +20,7 @@ defmodule Ulam.Stan.StanModelTest do
     }
 
     # Compile the model from the stan program file
-    model = StanModel.compile_file("test/stan/models/bernoulli/bernoulli.stan")
+    model = StanModel.compile_file("test/ulam/stan/models/bernoulli/bernoulli.stan")
 
     # Sample from the model and save it in a dataframe
     dataframe =

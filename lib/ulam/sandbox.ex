@@ -4,6 +4,18 @@ defmodule Ulam.Sandbox do
 
   alias Ulam.Stan.StanModel
 
+  def test() do
+    data = %{
+      N: 10,
+      y: [0, 1, 0, 0, 0, 0, 0, 0, 0, 1]
+    }
+
+    model = StanModel.compile_file("lib/ulam/sandbox/bernoulli/bernoulli.stan")
+    df = StanModel.sample(model, data)
+    theta = df["theta"]
+    kde(theta, 200)
+  end
+
   def default_bandwidth(series) do
     n = Series.size(series)
     sigma_hat = Series.standard_deviation(series)
@@ -107,9 +119,28 @@ defmodule Ulam.Sandbox do
 
   @inv_sqrt_2pi 1 / :math.sqrt(2 * :math.pi())
 
-  def gaussian_kernel(bandwidth, observations, x) do
+  def gaussian_kernel(x, observations, bandwidth) do
+    # Series.multiply(
+    #   @inv_sqrt_2pi,
+    #   Series.exp(
+    #     Series.multiply(
+    #       0.5,
+    #       Series.subtract(
+    #         0.0,
+    #         Series.pow(
+    #           Series.divide(
+    #             Series.subtract(x, observations),
+    #             bandwidth
+    #           ),
+    #           2
+    #         )
+    #       )
+    #     )
+    #   )
+    # )
+
     series! do
-      @inv_sqrt_2pi * exp(-((x - observations) ** 2 / (2 * bandwidth)))
+      @inv_sqrt_2pi * exp(-0.5 * ((x - observations) / bandwidth) ** 2)
     end
   end
 
@@ -119,34 +150,57 @@ defmodule Ulam.Sandbox do
     min = Series.min(observations)
     max = Series.max(observations)
     # Estimate the bandwidth
-    h = default_bandwidth(observations)
+    bandwidth = default_bandwidth(observations)
     # Get the x points at which we want to draw
     xs = linear_space_list(min, max, n)
 
-    IO.inspect(h, label: "bandwidth")
-
     ys =
-      for x <- xs do
-        series! do
-          1 / (n_observations * h) * sum(kernel.(h, observations, x))
-        end
+      for x_i <- xs do
+        Series.sum(kernel.(x_i, observations, bandwidth)) / (n_observations * bandwidth)
       end
 
     DataFrame.new(x: xs, y: ys)
   end
 
+  def example1() do
+    quote do
+      data do
+        n :: int(lower: 0)
+        disasters :: array(n, int(lower: 0))
+      end
+
+      parameters do
+        changepoint :: int(lower: 0, upper: 0)
+        early_rate :: real()
+        late_rate :: real()
+      end
+
+      model do
+        for t <- 1..n do
+          cond do
+            t < changepoint ->
+              disasters[t] <~> poisson(early_rate)
+
+            true ->
+              disasters[t] <~> poisson(late_rate)
+          end
+        end
+      end
+    end
+  end
+
   def example() do
     quote do
-      n = data(int(n))
-      x = data(vector(n), missing: true)
-      y = data(vector(n), missing: true, log_lik: true)
+      n :: data(int())
+      x :: data(vector(n), missing: true)
+      y :: data(vector(n), missing: true, log_lik: true)
 
-      slope = parameter(real())
-      intercept = parameter(real())
-      error = parameter(real(lower: 0))
-      p = parameter(real(lower: 0, upper: 1))
+      slope :: parameter(real())
+      intercept :: parameter(real())
+      error :: parameter(real(lower: 0))
+      p :: parameter(real(lower: 0, upper: 1))
 
-      log_lik = generated(vector(n))
+      log_lik :: generated(vector(n))
 
       for i <- 1..n do
         y[i] <~> normal(x[i] * slope + intercept, error)

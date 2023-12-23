@@ -1,9 +1,9 @@
 defmodule Ulam.Stan.StanModel do
   alias Ulam.Config
   require Explorer.DataFrame, as: DataFrame
-  alias Explorer.Series
 
   alias Ulam.Stan.ChainRunnerArgs
+  alias Ulam.Stan.RefreshHandlerState
 
   @random_seed 459_188_756
   @stan_random_seed_range 0..(2 ** 32)
@@ -15,27 +15,12 @@ defmodule Ulam.Stan.StanModel do
     struct(__MODULE__, opts)
   end
 
-  def with_cwd(new_cwd, fun) do
-    old_cwd = File.cwd!()
-
-    try do
-      File.cd!(new_cwd)
-      fun.()
-    after
-      File.cd!(old_cwd)
-    end
-  end
-
   def with_tmpdir(fun) do
     suffix = "tmp_#{Enum.random(100_000..999_000)}"
     tmp_dir = Path.join(System.tmp_dir!(), suffix)
     File.mkdir_p!(tmp_dir)
 
-    try do
-      fun.(tmp_dir)
-    after
-      # File.rm!(tmp_dir)
-    end
+    fun.(tmp_dir)
   end
 
   def compile_file(model_path) do
@@ -44,9 +29,11 @@ defmodule Ulam.Stan.StanModel do
     make_target = Path.rootname(model_path)
     abs_make_target = Path.absname(make_target)
 
-    with_cwd(cmdstan_dir, fn ->
-      {_output, 0} = System.cmd("make", [abs_make_target])
-    end)
+    {output, code} = System.cmd("make", [abs_make_target], cd: cmdstan_dir)
+
+    if code != 0 do
+      raise output
+    end
 
     %__MODULE__{
       name: model_name,
@@ -76,18 +63,21 @@ defmodule Ulam.Stan.StanModel do
     nr_of_warmup_samples = Keyword.get(opts, :nr_of_warmup_samples, 1000)
     refresh_every = Keyword.get(opts, :refresh_every, 50)
     random_seed = Keyword.get(opts, :random_seed, @random_seed)
-    show_progress_bars = Keyword.get(opts, :show_progress_bars, true)
+    show_progress_bars? = Keyword.get(opts, :show_progress_bars, true)
+    show_chain_data? = Keyword.get(opts, :show_chain_data, false)
 
     # Seed the Elixir random number.
     # NOTE: this won't affect the Stan random number generator.
     :rand.seed(:exsss, {random_seed, random_seed, random_seed})
 
     # Get deterministic random seeds from the random seed given.
-    random_seeds = Enum.map(1..nr_of_chains, fn _ -> Enum.random(@stan_random_seed_range) end)
+    random_seeds = Enum.map(1..nr_of_chains, fn _ ->
+      Enum.random(@stan_random_seed_range)
+    end)
 
     progress_bar_ids =
       Enum.map(1..nr_of_chains, fn _ ->
-        if show_progress_bars do
+        if show_progress_bars? do
           # Generate an ID
           {:progress_bar, make_ref()}
         else
@@ -98,7 +88,7 @@ defmodule Ulam.Stan.StanModel do
 
     # Despite having generated IDs for the progress bars, only actually show progress bars
     # if the they are meant to be shown.
-    if show_progress_bars do
+    if show_progress_bars? do
       # Make no distinction between warmup samples and regular samples,
       # because for the user it's not that important
       total_samples = nr_of_warmup_samples + nr_of_samples
@@ -140,13 +130,13 @@ defmodule Ulam.Stan.StanModel do
               # Create a process which will refresh the progress bars
               # (or whatever means of giving feedback to users which we might have implemented)
               {:ok, refresh_handler} =
-                GenServer.start_link(Ulam.Stan.RefreshHandler, %{
+                GenServer.start_link(Ulam.Stan.RefreshHandler, %RefreshHandlerState{
                   chain_id: chain_id,
                   # The refresh handler always needs some (maybe fictitious progress bar IDs)
                   progress_bar_id: args.progress_bar_id,
                   # However, the following value is what tells the refresh handler whether
                   # the (maybe fictitious progress bar should be notified)
-                  show_progress_bars: show_progress_bars,
+                  show_progress_bars: show_progress_bars?,
                   # The initial value for the progress bar counter.
                   # The refresh handler will always keep the current value for the progress bar
                   # and dynamically evaluate the step sizes for incrementing that value
@@ -178,18 +168,29 @@ defmodule Ulam.Stan.StanModel do
               # Force the current process to wait for the chain to finish.
               # This won't block other chains because other chains are run in parallel.
               receive do
-                {:finished, :ok} ->
-                  dataframe_from_output(output_path, chain_id)
+                {:finished, {:ok, refresh_handler_state}} ->
+                  dataframe = dataframe_from_output(output_path, chain_id)
+                  {dataframe, refresh_handler_state}
               end
             end)
           end)
 
         # Stan models can take a very long time to run
-        dataframes = Task.await_many(chain_tasks, :infinity)
+        {dataframes, refresh_handler_states} =
+          chain_tasks
+          |> Task.await_many(:infinity)
+          |> Enum.unzip()
+
+        if show_chain_data? do
+          for state <- refresh_handler_states do
+            RefreshHandlerState.log_messages(state)
+          end
+        end
+
         DataFrame.concat_rows(dataframes)
       end)
 
-    if show_progress_bars do
+    if show_progress_bars? do
       # Stop the previous live screen version so that the bars become "detatched"
       # and Owl won't attempt to render them again.
       Owl.LiveScreen.stop()

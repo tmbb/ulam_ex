@@ -1,5 +1,7 @@
 defmodule Ulam.Stan.RefreshHandler do
   use GenServer
+  require Logger
+  alias Ulam.Stan.RefreshHandlerState
 
   @impl true
   def init(state) do
@@ -7,7 +9,7 @@ defmodule Ulam.Stan.RefreshHandler do
   end
 
   @impl true
-  def handle_cast({:message, data}, state) do
+  def handle_cast({:message, data}, %RefreshHandlerState{} = state) do
     progress_bar_id = state.progress_bar_id
     progress_bar_counter = state.progress_bar_counter
 
@@ -22,22 +24,21 @@ defmodule Ulam.Stan.RefreshHandler do
           Owl.ProgressBar.inc(id: progress_bar_id, step: step)
         end
 
-        :timer.sleep(160)
-
         # Even of the progress bar doesn't exist, continue to
         # update the internal state, which is independent of
         # the progress bar itself.
         {:noreply, %{state | progress_bar_counter: new_counter_value}}
 
-      :error ->
+      {:error, message} ->
+        new_state = RefreshHandlerState.append_message(state, message)
         # We have received a message which is not a progress update
-        {:noreply, state}
+        {:noreply, new_state}
     end
   end
 
-  def handle_cast({:finished, result}, state) do
+  def handle_cast({:finished, result}, %RefreshHandlerState{} = state) do
     # Notify the parent process that the chain sampler has finished
-    send(state.owner, {:finished, result})
+    send(state.owner, {:finished, {result, state}})
     {:noreply, state}
   end
 
@@ -52,7 +53,7 @@ defmodule Ulam.Stan.RefreshHandler do
 
       # Ignore everything else
       _other ->
-        :error
+        {:error, message}
     end
   end
 end
