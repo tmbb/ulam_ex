@@ -4,6 +4,7 @@ defmodule Ulam.TestSupport do
 
   def remove_stan_compiled_artifacts(directories) do
     do_remove_stan_compiled_artifacts(directories)
+
     Callbacks.on_exit(fn ->
       do_remove_stan_compiled_artifacts(directories)
     end)
@@ -11,6 +12,7 @@ defmodule Ulam.TestSupport do
 
   def clean_directories(directories) do
     do_clean_directories(directories)
+
     Callbacks.on_exit(fn ->
       do_clean_directories(directories)
     end)

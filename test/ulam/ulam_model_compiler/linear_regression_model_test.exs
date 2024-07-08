@@ -18,7 +18,8 @@ defmodule Ulam.UlamModelCompiler.LinearRegressionModelTest do
 
   @tag slow: true
   test "regression model" do
-    stan_file = "test/ulam/ulam_model_compiler/linear_regression_model/linear_regression_model.stan"
+    stan_file =
+      "test/ulam/ulam_model_compiler/linear_regression_model/linear_regression_model.stan"
 
     ulam_model =
       UlamModel.new stan_file: stan_file do

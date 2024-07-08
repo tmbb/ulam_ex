@@ -71,9 +71,10 @@ defmodule Ulam.Stan.StanModel do
     :rand.seed(:exsss, {random_seed, random_seed, random_seed})
 
     # Get deterministic random seeds from the random seed given.
-    random_seeds = Enum.map(1..nr_of_chains, fn _ ->
-      Enum.random(@stan_random_seed_range)
-    end)
+    random_seeds =
+      Enum.map(1..nr_of_chains, fn _ ->
+        Enum.random(@stan_random_seed_range)
+      end)
 
     progress_bar_ids =
       Enum.map(1..nr_of_chains, fn _ ->

@@ -15,16 +15,16 @@ defmodule Ulam.UlamModelCompiler do
   end
 
   def model_from_blocks(stan_file, blocks) do
-      %UlamModel{
-        functions: get_block(blocks, :functions),
-        data: get_block(blocks, :data),
-        transformed_data: get_block(blocks, :transformed_data),
-        parameters: get_block(blocks, :parameters),
-        transformed_parameters: get_block(blocks, :transformed_parameters),
-        model: get_block(blocks, :model),
-        generated_quantities: get_block(blocks, :generated_quantities),
-        stan_file: stan_file
-      }
+    %UlamModel{
+      functions: get_block(blocks, :functions),
+      data: get_block(blocks, :data),
+      transformed_data: get_block(blocks, :transformed_data),
+      parameters: get_block(blocks, :parameters),
+      transformed_parameters: get_block(blocks, :transformed_parameters),
+      model: get_block(blocks, :model),
+      generated_quantities: get_block(blocks, :generated_quantities),
+      stan_file: stan_file
+    }
   end
 
   def model_from_elixir(opts, body, _env) do
@@ -58,7 +58,6 @@ defmodule Ulam.UlamModelCompiler do
 
     model_from_blocks(stan_file, blocks)
   end
-
 
   def get_block(blocks, block_name) when is_atom(block_name) do
     case Keyword.fetch(blocks, block_name) do

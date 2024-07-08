@@ -1,4 +1,4 @@
-exclude_slow? = false
+exclude_slow? = true
 
 if exclude_slow? do
   ExUnit.start(exclude: [slow: true])

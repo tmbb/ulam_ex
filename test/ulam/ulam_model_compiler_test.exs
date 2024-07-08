@@ -120,7 +120,7 @@ defmodule Ulam.UlamModelCompilerTest do
     ulam_for_loop = UlamModelCompiler.from_elixir_ast(for_loop)
 
     # Serialize the output (the AST is too complex to check manually)
-    assert UlamAST.serialize(ulam_for_loop) == """
+    assert UlamAST.serialize_as_unix(ulam_for_loop) == """
            for (i in 1:n) {
              x ~ y;
            }\

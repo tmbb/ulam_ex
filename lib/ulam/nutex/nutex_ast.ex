@@ -1,4 +1,4 @@
-defmodule Ulam.UlamAST do
+defmodule Ulam.NutexAst do
   defmodule Meta do
     defstruct line: nil,
               contains: [],
@@ -92,6 +92,7 @@ defmodule Ulam.UlamAST do
   defmodule Assign do
     defstruct left: nil,
               right: nil,
+              grad: nil,
               meta: %Meta{}
   end
 
@@ -111,6 +112,13 @@ defmodule Ulam.UlamAST do
   defmodule FunctionCall do
     defstruct function: nil,
               arguments: [],
+              meta: %Meta{}
+  end
+
+  defmodule IncrementLogLikelihood do
+    defstruct expression: nil,
+              terms: nil,
+              grads: nil,
               meta: %Meta{}
   end
 
@@ -201,10 +209,6 @@ defmodule Ulam.UlamAST do
     serialized_kv_pairs = serialize_as_brackets(kv_pairs)
 
     "#{name}[#{serialized_dimensions}]#{serialized_kv_pairs}"
-  end
-
-  def serialize_as_unix(ast_node, indent_level \\ 0) do
-    String.replace(serialize(ast_node, indent_level), "\r\n", "\n")
   end
 
   def serialize(ast_node, indent_level \\ 0) do
@@ -422,218 +426,5 @@ defmodule Ulam.UlamAST do
         new_call = %{call | function: call.function, arguments: new_args}
         transformer.(new_call, accum)
     end
-  end
-end
-
-defmodule Ulam.MissingDataContainer do
-  alias Ulam.UlamAST, as: A
-  alias Ulam.UlamAST
-  alias Ulam.UlamAST.{Variable, IndexedExpression, If, Sample}
-
-  defstruct type: nil,
-            variable: nil,
-            dimensions: nil,
-            n_missing: nil,
-            n_not_missing: nil,
-            n_is_missing: nil,
-            is_missing: nil,
-            index_for_missing_value: nil,
-            index_for_not_missing_value: nil,
-            missing: nil,
-            not_missing: nil
-
-  def is_missing_variable(variable) do
-    %Variable{name: variable.name <> "__is_missing"}
-  end
-
-  def missing_variable(variable) do
-    %Variable{name: variable.name <> "__missing"}
-  end
-
-  def not_missing_variable(variable) do
-    %Variable{name: variable.name <> "__not_missing"}
-  end
-
-  def index_for_missing_value_variable(variable) do
-    %Variable{name: variable.name <> "__missing_value_index"}
-  end
-
-  def index_for_not_missing_value_variable(variable) do
-    %Variable{name: variable.name <> "__not_missing_value_index"}
-  end
-
-  def maybe_replace_by_missing_variable(expression, replacement_indexed_expression) do
-    case expression do
-      indexed_expressions when indexed_expressions == replacement_indexed_expression ->
-        variable = replacement_indexed_expression.expression
-        # Replace the missing variable access in an intelligent way.
-        # As long as the original index expression is valid, this will also be valid.
-        # All "inner indices" are data and not parameters, which means that stan
-        # can be smart when optimizing the evaluation of derivatives
-        # by separating the variable and constant parts.
-        %IndexedExpression{
-          expression: missing_variable(variable),
-          indices: [
-            %IndexedExpression{
-              expression: index_for_missing_value_variable(variable),
-              indices: indexed_expressions.indices
-            }
-          ]
-        }
-
-      other ->
-        other
-    end
-  end
-
-  def maybe_replace_by_not_missing_variable(expression, replacement_indexed_expression) do
-    case expression do
-      indexed_expressions when indexed_expressions == replacement_indexed_expression ->
-        variable = replacement_indexed_expression.expression
-
-        %IndexedExpression{
-          expression: not_missing_variable(variable),
-          indices: [
-            %IndexedExpression{
-              expression: index_for_not_missing_value_variable(variable),
-              indices: indexed_expressions.indices
-            }
-          ]
-        }
-
-      other ->
-        other
-    end
-  end
-
-  def collect_possibly_missing_values(ulam_ast, variables_with_missing_data) do
-    {_ulam_ast, missing_data_expressions} =
-      UlamAST.prewalk(ulam_ast, [], fn ast_node, missing_data_expressions ->
-        case ast_node do
-          %IndexedExpression{} = indexed_expressions ->
-            if indexed_expressions.expression in variables_with_missing_data do
-              {indexed_expressions, [indexed_expressions | missing_data_expressions]}
-            else
-              {indexed_expressions, missing_data_expressions}
-            end
-
-          other ->
-            {other, missing_data_expressions}
-        end
-      end)
-
-    missing_data_expressions
-  end
-
-  def transform_statement_with_maybe_missing_values(sample, indexed_expressions_to_replace) do
-    Enum.reduce(indexed_expressions_to_replace, sample, fn indexed_expression, current_sample ->
-      variable = indexed_expression.expression
-      # Replace by a missing variable
-      {branch_for_value_missing, _accum} =
-        UlamAST.prewalk(current_sample, nil, fn node, _accum ->
-          {maybe_replace_by_missing_variable(node, indexed_expression), nil}
-        end)
-
-      # Replace by a non-missing variable
-      {branch_for_value_not_missing, _accum} =
-        UlamAST.prewalk(current_sample, nil, fn node, _accum ->
-          {maybe_replace_by_not_missing_variable(node, indexed_expression), nil}
-        end)
-
-      %If{
-        condition: %IndexedExpression{
-          expression: is_missing_variable(variable),
-          indices: indexed_expression.indices
-        },
-        then: [branch_for_value_missing],
-        otherwise: [branch_for_value_not_missing]
-      }
-    end)
-  end
-
-  def handle_variables_with_missing_data(ast, variables_with_missing_data) do
-    indexed_expressions_to_replace =
-      collect_possibly_missing_values(ast, variables_with_missing_data)
-
-    {new_ast, _accum} =
-      UlamAST.prewalk(ast, nil, fn ast_node, accum ->
-        case ast_node do
-          %Sample{} = sample ->
-            new_ast_node =
-              transform_statement_with_maybe_missing_values(
-                sample,
-                indexed_expressions_to_replace
-              )
-
-            {new_ast_node, accum}
-
-          other ->
-            {other, accum}
-        end
-      end)
-
-    new_ast
-  end
-
-  def test() do
-    x = %A.Variable{name: "x"}
-    y = %A.Variable{name: "y"}
-
-    i = %A.Variable{name: "i"}
-    j = %A.Variable{name: "j"}
-    # k = %Variable{name: "k"}
-
-    error = %A.Variable{name: "error"}
-    slope = %A.Variable{name: "slope"}
-    intercept = %A.Variable{name: "intercept"}
-
-    stmt1 = %A.Sample{
-      left: %A.IndexedExpression{
-        expression: y,
-        indices: [i, j]
-      },
-      right: %A.FunctionCall{
-        function: "normal",
-        arguments: [
-          %A.BinOp{
-            operator: "+",
-            left: %A.BinOp{
-              operator: "*",
-              left: slope,
-              right: %A.IndexedExpression{
-                expression: x,
-                indices: [i, j]
-              }
-            },
-            right: intercept
-          },
-          error
-        ]
-      }
-    }
-
-    for_loop = %A.ForLoop{
-      ranges: [
-        %A.ForLoopRange{
-          variable: i,
-          lower: %A.LitInteger{value: 1},
-          upper: %A.Variable{name: "N"}
-        },
-        %A.ForLoopRange{
-          variable: j,
-          lower: %A.LitInteger{value: 1},
-          upper: %A.Variable{name: "N"}
-        }
-      ],
-      body: [
-        stmt1
-      ]
-    }
-
-    contents =
-      handle_variables_with_missing_data(for_loop, [x, y])
-      |> UlamAST.serialize()
-
-    File.write!("example.stan", contents)
   end
 end

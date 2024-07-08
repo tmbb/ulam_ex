@@ -12,8 +12,7 @@ defmodule Ulam.Sandbox do
 
     model = StanModel.compile_file("lib/ulam/sandbox/bernoulli/bernoulli.stan")
     df = StanModel.sample(model, data)
-    theta = df["theta"]
-    kde(theta, 200)
+    df["theta"]
   end
 
   def default_bandwidth(series) do
@@ -120,25 +119,6 @@ defmodule Ulam.Sandbox do
   @inv_sqrt_2pi 1 / :math.sqrt(2 * :math.pi())
 
   def gaussian_kernel(x, observations, bandwidth) do
-    # Series.multiply(
-    #   @inv_sqrt_2pi,
-    #   Series.exp(
-    #     Series.multiply(
-    #       0.5,
-    #       Series.subtract(
-    #         0.0,
-    #         Series.pow(
-    #           Series.divide(
-    #             Series.subtract(x, observations),
-    #             bandwidth
-    #           ),
-    #           2
-    #         )
-    #       )
-    #     )
-    #   )
-    # )
-
     series! do
       @inv_sqrt_2pi * exp(-0.5 * ((x - observations) / bandwidth) ** 2)
     end
@@ -185,26 +165,6 @@ defmodule Ulam.Sandbox do
               disasters[t] <~> poisson(late_rate)
           end
         end
-      end
-    end
-  end
-
-  def example() do
-    quote do
-      n :: data(int())
-      x :: data(vector(n), missing: true)
-      y :: data(vector(n), missing: true, log_lik: true)
-
-      slope :: parameter(real())
-      intercept :: parameter(real())
-      error :: parameter(real(lower: 0))
-      p :: parameter(real(lower: 0, upper: 1))
-
-      log_lik :: generated(vector(n))
-
-      for i <- 1..n do
-        y[i] <~> normal(x[i] * slope + intercept, error)
-        y[i] <~> right_censored_weibul(x[i] * slope + intercept, lambda, event[i])
       end
     end
   end
