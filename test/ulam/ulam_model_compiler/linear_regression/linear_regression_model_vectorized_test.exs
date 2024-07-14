@@ -1,25 +1,24 @@
-defmodule Ulam.UlamModelCompiler.LinearRegressionModelTest do
+defmodule Ulam.UlamModelCompiler.LinearRegressionModelVectorizedTest do
   use ExUnit.Case, async: true
   require Ulam.UlamModel, as: UlamModel
   alias Ulam.TestSupport
 
+  @model_dir Path.join([
+    "test",
+    "ulam",
+    "ulam_model_compiler",
+    "linear_regression",
+    "linear_regression_model_vectorized"
+  ])
+
   setup do
     TestSupport.clean_directories([
-      "test/ulam/ulam_model_compiler/linear_regression_model"
+      @model_dir
     ])
   end
 
-  def cross_platform_assert_equal(left, right) do
-    canonical_left = String.replace(left, "\r\n", "\n")
-    canonical_right = String.replace(right, "\r\n", "\n")
-
-    assert canonical_left == canonical_right
-  end
-
-  @tag slow: true
-  test "regression model" do
-    stan_file =
-      "test/ulam/ulam_model_compiler/linear_regression_model/linear_regression_model.stan"
+  test "regression model - vectorized" do
+    stan_file = Path.join(@model_dir, "linear_regression_model_vectorized.stan")
 
     ulam_model =
       UlamModel.new stan_file: stan_file do
@@ -40,10 +39,8 @@ defmodule Ulam.UlamModelCompiler.LinearRegressionModelTest do
         end
 
         model do
-          for i <- 1..n do
-            x[i] <~> normal(mu_x, sigma_x)
-            y[i] <~> normal(x[i] * slope + intercept, error)
-          end
+          x <~> normal(mu_x, sigma_x)
+          y <~> normal(x * slope + intercept, error)
         end
       end
 

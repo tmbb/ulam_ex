@@ -32,7 +32,7 @@ defmodule Ulam.MixProject do
       {:stream_data, "~> 0.6", only: [:test, :dev]},
       {:benchee, "~> 1.0", only: [:dev, :test]},
       {:incendium, path: "../incendium", only: [:dev, :test]},
-      {:statistics, "~> 0.6"},
+      {:statistics, "~> 0.6", only: [:dev, :test]},
       {:slugify, "~> 1.3"}
     ]
   end
