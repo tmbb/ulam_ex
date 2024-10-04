@@ -7,10 +7,29 @@ defmodule Ulam.UlamModelCompiler do
   alias Ulam.Stan.StanModel
   require Ulam.KeywordSpec, as: KeywordSpec
 
+  defp model_already_compiled?(stan_file, new_model_iodata) do
+    (
+      File.exists?(stan_file) and
+      File.exists?(Path.rootname(stan_file)) and
+      File.exists?(Path.rootname(stan_file) <> ".hpp") and
+      File.read!(stan_file) == to_string(new_model_iodata)
+    )
+  end
+
   def compile_model(%UlamModel{} = ulam_model) do
     iodata = to_stan_as_iodata(ulam_model)
-    File.write!(ulam_model.stan_file, iodata)
-    stan_model = StanModel.compile_file(ulam_model.stan_file)
+
+    stan_model =
+      if model_already_compiled?(ulam_model.stan_file, iodata) do
+        # Don't recompile the model, that takes a long time!
+        StanModel.from_file(ulam_model.stan_file)
+      else
+        # Compile or recompile the model, it hasn't been compiled yet
+        File.write!(ulam_model.stan_file, iodata)
+        StanModel.compile_file(ulam_model.stan_file)
+      end
+
+    # Return the compiled stan model
     %{ulam_model | stan_model: stan_model, compiled: true}
   end
 

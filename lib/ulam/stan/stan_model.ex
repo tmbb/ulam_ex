@@ -4,6 +4,7 @@ defmodule Ulam.Stan.StanModel do
 
   alias Ulam.Stan.ChainRunnerArgs
   alias Ulam.Stan.RefreshHandlerState
+  alias Ulam.ProgressMonitors.ConsoleProgressBar
 
   @random_seed 459_188_756
   @stan_random_seed_range 0..(2 ** 32)
@@ -21,6 +22,17 @@ defmodule Ulam.Stan.StanModel do
     File.mkdir_p!(tmp_dir)
 
     fun.(tmp_dir)
+  end
+
+  def from_file(model_path) do
+    model_name = Path.basename(model_path)
+    make_target = Path.rootname(model_path)
+    abs_make_target = Path.absname(make_target)
+
+    %__MODULE__{
+      name: model_name,
+      executable_path: abs_make_target
+    }
   end
 
   def compile_file(model_path) do
@@ -41,30 +53,17 @@ defmodule Ulam.Stan.StanModel do
     }
   end
 
-  def start_progress_bar(progress_bar_id, chain_id, total_samples) do
-    label = ["- Chain ", Owl.Data.tag("##{chain_id}", :cyan)]
 
-    Owl.ProgressBar.start(
-      id: progress_bar_id,
-      label: label,
-      total: total_samples,
-      timer: true,
-      bar_width_ratio: 0.7,
-      filled_symbol: Owl.Data.tag("▮", :red),
-      empty_symbol: Owl.Data.tag("-", :light_black),
-      absolute_values: true,
-      partial_symbols: []
-    )
-  end
-
+  @spec sample(any(), map(), Keyword.t()) :: DataFrame.t()
   def sample(model, data, opts \\ []) do
     nr_of_chains = Keyword.get(opts, :nr_of_chains, 4)
     nr_of_samples = Keyword.get(opts, :nr_of_samples, 1000)
     nr_of_warmup_samples = Keyword.get(opts, :nr_of_warmup_samples, 1000)
     refresh_every = Keyword.get(opts, :refresh_every, 50)
     random_seed = Keyword.get(opts, :random_seed, @random_seed)
-    show_progress_bars? = Keyword.get(opts, :show_progress_bars, true)
+    show_progress_widgets? = Keyword.get(opts, :show_progress_widgets, true)
     show_chain_data? = Keyword.get(opts, :show_chain_data, false)
+    progress_monitor = Keyword.get(opts, :progress_monitor, ConsoleProgressBar)
 
     # Seed the Elixir random number.
     # NOTE: this won't affect the Stan random number generator.
@@ -76,41 +75,28 @@ defmodule Ulam.Stan.StanModel do
         Enum.random(@stan_random_seed_range)
       end)
 
-    progress_bar_ids =
-      Enum.map(1..nr_of_chains, fn _ ->
-        if show_progress_bars? do
-          # Generate an ID
-          {:progress_bar, make_ref()}
-        else
-          # Don't generate an ID
-          nil
-        end
-      end)
+    total_samples = nr_of_warmup_samples + nr_of_samples
 
-    # Despite having generated IDs for the progress bars, only actually show progress bars
-    # if the they are meant to be shown.
-    if show_progress_bars? do
-      # Make no distinction between warmup samples and regular samples,
-      # because for the user it's not that important
-      total_samples = nr_of_warmup_samples + nr_of_samples
-      # Start all progress bars
-      for {progress_bar_id, chain_id} <- Enum.with_index(progress_bar_ids, 1) do
-        start_progress_bar(progress_bar_id, chain_id, total_samples)
+    progress_widgets =
+      if show_progress_widgets? do
+        widgets = progress_monitor.start_chain_monitors(1..nr_of_chains, total_samples)
+        progress_monitor.await(widgets)
+
+        widgets
+      else
+        List.duplicate(nil, nr_of_chains)
       end
-
-      Owl.LiveScreen.await_render()
-    end
 
     chain_sampler_arguments =
       for i <- 0..(nr_of_chains - 1) do
         %{
           random_seed: Enum.at(random_seeds, i),
-          progress_bar_id: Enum.at(progress_bar_ids, i),
-          chain_id: i + 1
+          chain_id: i + 1,
+          progress_widget: Enum.at(progress_widgets, i)
         }
       end
 
-    dataframe =
+    draws =
       with_tmpdir(fn tmp_dir ->
         # Write the data to a JSON file (this is the preferred way to communicate with Stan).
         # All chains will read the data from this file.
@@ -125,6 +111,7 @@ defmodule Ulam.Stan.StanModel do
         chain_tasks =
           Enum.map(chain_sampler_arguments, fn args ->
             Task.async(fn ->
+              progress_monitor_widget = args.progress_widget
               random_seed = args.random_seed
               chain_id = args.chain_id
 
@@ -134,15 +121,16 @@ defmodule Ulam.Stan.StanModel do
                 GenServer.start_link(Ulam.Stan.RefreshHandler, %RefreshHandlerState{
                   chain_id: chain_id,
                   # The refresh handler always needs some (maybe fictitious progress bar IDs)
-                  progress_bar_id: args.progress_bar_id,
+                  progress_widget: progress_monitor_widget,
+                  progress_monitor: progress_monitor,
                   # However, the following value is what tells the refresh handler whether
                   # the (maybe fictitious progress bar should be notified)
-                  show_progress_bars: show_progress_bars?,
+                  show_progress_widgets: show_progress_widgets?,
                   # The initial value for the progress bar counter.
                   # The refresh handler will always keep the current value for the progress bar
                   # and dynamically evaluate the step sizes for incrementing that value
                   # each time a message comes from Stan.
-                  progress_bar_counter: 0,
+                  progress_widget_counter: 0,
                   # The refresh handler will notify this process (i.e. the task)
                   # when the Stan program finishes running
                   owner: self()
@@ -191,13 +179,11 @@ defmodule Ulam.Stan.StanModel do
         DataFrame.concat_rows(dataframes)
       end)
 
-    if show_progress_bars? do
-      # Stop the previous live screen version so that the bars become "detatched"
-      # and Owl won't attempt to render them again.
-      Owl.LiveScreen.stop()
+    if show_progress_widgets? do
+      progress_monitor.clean_up(progress_widgets)
     end
 
-    dataframe
+    draws
   end
 
   defp dataframe_from_output(output_filename, chain_id) do
@@ -209,7 +195,7 @@ defmodule Ulam.Stan.StanModel do
     |> Stream.run()
 
     df = DataFrame.from_csv!(transformed_output_filename)
-    DataFrame.mutate(df, chain_id__: ^chain_id)
+    DataFrame.mutate(df, chain__: ^chain_id, draw__: row_index(lp__))
   end
 
   defp stream_output(port, refresh_handler) do

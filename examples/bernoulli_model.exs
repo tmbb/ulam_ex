@@ -6,7 +6,6 @@ defmodule Ulam.Examples.BernoulliModel do
 
   alias Quartz.{Figure, Length, Plot2D}
   alias Quartz.Color.RGB
-  use Dantzig.Polynomial.Operators
 
   # The user has to give an explicit filename for the generated Stan code.
   # Alternatively, the user can give just a filename and a directory
@@ -56,6 +55,13 @@ defmodule Ulam.Examples.BernoulliModel do
     DataFrame.to_parquet!(dataframe, "examples/bernoulli_model/samples.parquet")
   end
 
+  alias Ulam.UlamInferenceData
+
+  def viz() do
+    idata = UlamInferenceData.from_parquet!("examples/bernoulli_model/samples.parquet")
+
+  end
+
   def visualize() do
     samples = DataFrame.from_parquet!("examples/bernoulli_model/samples.parquet")
 
@@ -75,16 +81,14 @@ defmodule Ulam.Examples.BernoulliModel do
       Figure.new(figure_attributes, fn _fig ->
         theta_kdes =
           for chain_id <- 1..4 do
-            theta = DataFrame.filter(samples, chain_id__ == ^chain_id)["theta"]
+            theta = DataFrame.filter(samples, chain__ == ^chain_id)["theta"]
             Sandbox.kde(theta, 200)
           end
 
         plot =
           Plot2D.new(id: "plot_A")
-          |> Plot2D.put_title("A. Posterior probability for $theta$ (all 4 chains)", text: [escape: false])
-          |> Plot2D.put_axis_label("x", "$theta$", text: [escape: false])
-          |> Plot2D.put_axis_minimum_margins("x", Length.pt(10))
-          |> Plot2D.put_axis_minimum_margins("y", Length.pt(10))
+          |> Plot2D.put_title("A. Posterior probability for theta (all 4 chains)")
+          |> Plot2D.put_axis_label("x", "theta")
 
         plot =
           Enum.zip(theta_kdes, colors)
@@ -98,10 +102,10 @@ defmodule Ulam.Examples.BernoulliModel do
         Plot2D.finalize(plot)
       end)
 
-    path = Path.join([__DIR__, "bernoulli_model", "theta.pdf"])
+    path = Path.join([__DIR__, "bernoulli_model", "theta.png"])
     Figure.render_to_pdf_file!(figure, path)
   end
 end
 
 # Ulam.Examples.BernoulliModel.run()
-Ulam.Examples.BernoulliModel.visualize()
+Ulam.Examples.BernoulliModel.run()

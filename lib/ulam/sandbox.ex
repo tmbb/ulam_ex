@@ -1,4 +1,6 @@
 defmodule Ulam.Sandbox do
+  @moduledoc false
+
   require Explorer.DataFrame, as: DataFrame
   alias Explorer.Series
 

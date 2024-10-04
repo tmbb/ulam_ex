@@ -10,24 +10,17 @@ defmodule Ulam.Stan.RefreshHandler do
 
   @impl true
   def handle_cast({:message, data}, %RefreshHandlerState{} = state) do
-    progress_bar_id = state.progress_bar_id
-    progress_bar_counter = state.progress_bar_counter
-
     case maybe_current_value(data) do
       {:ok, new_counter_value} ->
-        # We increment the progress bar by steps,
-        # so we don't care about the actual value.
-        step = new_counter_value - progress_bar_counter
-
         # Only notify progress bars that actually exist
-        if state.show_progress_bars do
-          Owl.ProgressBar.inc(id: progress_bar_id, step: step)
+        if state.show_progress_widgets do
+          state.progress_monitor.update_value(state, new_counter_value)
         end
 
         # Even of the progress bar doesn't exist, continue to
         # update the internal state, which is independent of
         # the progress bar itself.
-        {:noreply, %{state | progress_bar_counter: new_counter_value}}
+        {:noreply, %{state | progress_widget_counter: new_counter_value}}
 
       {:error, message} ->
         new_state = RefreshHandlerState.append_message(state, message)

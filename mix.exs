@@ -20,6 +20,7 @@ defmodule Ulam.MixProject do
   end
 
   defp elixirc_paths(:test), do: ["lib/", "test/support"]
+  defp elixirc_paths(:dev), do: ["lib/", "demo/lib/"]
   defp elixirc_paths(_env), do: ["lib/"]
 
   # Run "mix help deps" to learn about dependencies.
@@ -28,12 +29,14 @@ defmodule Ulam.MixProject do
       {:explorer, "~> 0.8"},
       {:jason, "~> 1.4"},
       {:owl, "~> 0.8"},
+      {:kino_progress_bar, "~> 0.1"},
       {:rustler, "~> 0.31", override: true, optional: true},
-      {:stream_data, "~> 0.6", only: [:test, :dev]},
-      {:benchee, "~> 1.0", only: [:dev, :test]},
-      {:incendium, path: "../incendium", only: [:dev, :test]},
+      {:slugify, "~> 1.3"},
+      {:benchee, "~> 1.0"},
       {:statistics, "~> 0.6", only: [:dev, :test]},
-      {:slugify, "~> 1.3"}
+      {:quartz, path: "../quartz"},
+      {:incendium, path: "../incendium", only: [:dev, :test]},
+      {:stream_data, "~> 0.6", only: [:test, :dev]},
     ]
   end
 end

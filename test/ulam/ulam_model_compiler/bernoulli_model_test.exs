@@ -16,7 +16,7 @@ defmodule Ulam.UlamModelCompiler.BernoulliModelTest do
     assert canonical_left == canonical_right
   end
 
-  @tag slow: true
+  @tag slow: true, timeout: :infinity
   test "regression model" do
     stan_file = "test/ulam/ulam_model_compiler/bernoulli_model/bernoulli_model.stan"
 

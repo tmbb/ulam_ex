@@ -1,0 +1,110 @@
+<!-- livebook:{"persist_outputs":true} -->
+
+# Untitled notebook
+
+```elixir
+Mix.install(
+  [
+    {:ulam, path: Path.join(__DIR__, ".."), env: :dev}
+  ],
+  config_path: :ulam,
+  lockfile: :ulam
+)
+```
+
+## Section
+
+```elixir
+require Ulam.UlamModel, as: UlamModel
+alias Ulam.ProgressMonitors.KinoProgressMonitor
+
+require Explorer.DataFrame, as: DataFrame
+alias Explorer.Series
+
+alias Statistics.Distributions.Normal
+
+non_vectorized_model_file = "examples/linear_regression_vectorization/non_vectorized.stan"
+
+non_vectorized_model =
+    UlamModel.new stan_file: non_vectorized_model_file do
+      data do
+        n :: int(lower: 0)
+        x :: vector(n)
+        y :: vector(n)
+      end
+
+      parameters do
+        # Parameters for the linear regression
+        intercept :: real()
+        slope :: real()
+        error :: real(lower: 0)
+        # Prior on x
+        mu_x :: real()
+        sigma_x :: real(lower: 0)
+      end
+
+      model do
+        for i <- 1..n do
+          x[i] <~> normal(mu_x, sigma_x)
+          y[i] <~> normal(x[i] * slope + intercept, error)
+        end
+      end
+    end
+
+compiled_model = UlamModel.compile(non_vectorized_model)
+
+params = %{
+  mu_x: 1.2,
+  sigma_x: 0.7,
+  slope: 0.7,
+  intercept: 2.8,
+  error: 0.15
+}
+
+# Simulate some data
+n = 160
+x = for _i <- 1..n, do: Normal.rand(params.mu_x, params.sigma_x)
+y = for x_i <- x, do: Normal.rand(x_i * params.slope + params.intercept, params.error)
+
+data = %{x: x, y: y, n: n}
+
+:ok
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+:ok
+```
+
+```elixir
+# Sample from the precompiled model
+dataframe =
+  UlamModel.sample(compiled_model, data,
+    nr_of_samples: 10_000,
+    nr_of_warmup_samples: 100_000,
+    nr_of_chains: 4,
+    progress_monitor: KinoProgressMonitor
+  )
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+#Explorer.DataFrame<
+  Polars[40000 x 13]
+  lp__ f64 [216.438, 216.321, 215.388, 214.367, 215.433, ...]
+  accept_stat__ f64 [0.937126, 0.999769, 0.978436, 0.871591, 0.993678, ...]
+  stepsize__ f64 [0.309385, 0.309385, 0.309385, 0.309385, 0.309385, ...]
+  treedepth__ s64 [3, 4, 3, 2, 4, ...]
+  n_leapfrog__ s64 [7, 15, 7, 3, 15, ...]
+  divergent__ s64 [0, 0, 0, 0, 0, ...]
+  energy__ f64 [-212.891, -215.788, -213.813, -213.3, -211.814, ...]
+  intercept f64 [2.79727, 2.80188, 2.82414, 2.82774, 2.81214, ...]
+  slope f64 [0.692079, 0.688404, 0.673604, 0.675499, 0.67917, ...]
+  error f64 [0.158438, 0.157599, 0.166397, 0.169968, 0.138837, ...]
+  mu_x f64 [1.36237, 1.37116, 1.35812, 1.35515, 1.29617, ...]
+  sigma_x f64 [0.59416, 0.59675, 0.615252, 0.595205, 0.673599, ...]
+  chain__ s64 [1, 1, 1, 1, 1, ...]
+>
+```

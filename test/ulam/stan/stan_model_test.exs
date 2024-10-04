@@ -40,6 +40,6 @@ defmodule Ulam.Stan.StanModelTest do
     # The log-likelihood is one of the columns
     assert "lp__" in DataFrame.names(dataframe)
     # The chain_id is one of the columns
-    assert "chain_id__" in DataFrame.names(dataframe)
+    assert "chain__" in DataFrame.names(dataframe)
   end
 end

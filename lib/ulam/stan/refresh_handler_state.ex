@@ -1,12 +1,11 @@
 defmodule Ulam.Stan.RefreshHandlerState do
   defstruct chain_id: nil,
-            progress_bar_id: nil,
-            show_progress_bars: nil,
-            progress_bar_counter: 0,
+            progress_widget: nil,
+            show_progress_widgets: nil,
+            progress_widget_counter: 0,
             messages: [],
+            progress_monitor: nil,
             owner: nil
-
-  # require Logger
 
   def append_message(%__MODULE__{} = state, message) do
     %{state | messages: [message | state.messages]}
